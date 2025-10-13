@@ -1,0 +1,24 @@
+server:
+  port: 8000
+
+database:
+  host: 127.0.0.1
+  port: 3306
+  user: root
+  password: 123456
+  name: seckill_db
+
+redis:
+  cluster_nodes: 127.0.0.1:7000,127.0.0.1:7001,127.0.0.1:7002,127.0.0.1:7003,127.0.0.1:7004,127.0.0.1:7005
+  password: ""
+
+kafka:
+  brokers: 127.0.0.1:9092,127.0.0.1:9094,127.0.0.1:9096
+  topic: seckill_orders
+  group_id: seckill_group
+
+etcd:
+  host: 127.0.0.1:2379
+  dial_timeout: 5
+  username: ""
+  password: ""
