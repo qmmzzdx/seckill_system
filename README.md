@@ -1,33 +1,70 @@
-# 秒杀系统项目
+# 秒杀系统 (Seckill System)
 
 ## 🎯 项目概述
-一个基于Go语言的高并发秒杀系统，采用微服务架构思想，集成了多种中间件来保证系统的高性能、高可用和安全性。系统通过分布式锁、缓存预减、异步处理等机制，有效解决了高并发场景下的超卖、性能瓶颈和数据一致性问题。
+
+一个基于Go语言构建的高性能、高可用的分布式秒杀系统。系统采用微服务架构思想，集成了多种中间件和技术栈，有效解决了高并发场景下的超卖、性能瓶颈和数据一致性问题。
+
+### ✨ 核心特性
+
+- 🔒 **分布式锁保护** - 基于Etcd的强一致性分布式锁，彻底解决超卖问题
+- ⚡ **高性能处理** - Redis预减库存 + 异步消息队列，支持万级QPS
+- 🛡️ **全方位防护** - 多层级限流、黑名单、令牌验证等安全机制
+- 🔄 **动态配置** - Etcd配置中心支持实时配置更新
+- 🧪 **完整测试** - 包含单元测试、集成测试和压力测试
+- 🚀 **一键部署** - 自动化脚本快速部署所有依赖服务
 
 ## 🏗️ 系统架构
 
-### 核心架构图
+### 技术架构图
+
 ```
-客户端 → Gateway网关 → 业务处理层 → 数据访问层 → 存储层
-                    ↓
-              消息队列(Kafka) → 异步处理
-                    ↓
-              配置中心(Etcd) → 动态配置 + 分布式锁
+客户端请求
+    ↓
+Gateway网关 (Gin)
+    ↓
+业务处理层 (Service) → 分布式锁 (Etcd) → 配置中心 (Etcd)
+    ↓
+数据访问层 (Repository) → 消息队列 (Kafka)
+    ↓
+存储层 (MySQL + Redis Cluster)
 ```
 
-### 技术栈
-- **语言**: Go 1.24+
-- **Web框架**: Gin
-- **ORM**: GORM
-- **数据库**: MySQL
-- **缓存**: Redis Cluster (6节点集群)
-- **消息队列**: Kafka (3节点集群)
-- **配置中心 & 分布式锁**: Etcd
-- **测试框架**: Go Testing + Mock
-- **部署**: 单机部署（支持水平扩展）
+### 核心业务流程
+
+#### 1. 秒杀令牌获取流程
+```
+用户认证 → 检查秒杀开关 → 黑名单检查 → 商品验证 → 
+活动时间检查 → 库存检查 → 限流检查 → 生成令牌
+```
+
+#### 2. 秒杀下单流程（分布式锁保护）
+```
+获取分布式锁 → 令牌验证 → Redis预减库存 → 数据库事务 → 
+乐观锁扣库存 → 创建订单 → 发送Kafka消息 → 释放分布式锁
+```
+
+#### 3. 支付流程
+```
+支付请求 → 支付处理 → 发送支付消息 → 
+异步更新订单状态 → 失败时恢复库存
+```
+
+## 🛠️ 技术栈
+
+| 组件 | 技术选型 | 说明 |
+|------|----------|------|
+| **开发语言** | Go 1.24+ | 高性能并发处理 |
+| **Web框架** | Gin | 轻量级HTTP框架 |
+| **数据库** | MySQL 8.0+ | 关系型数据存储 |
+| **缓存** | Redis Cluster (6节点) | 分布式缓存，库存预减 |
+| **消息队列** | Kafka (3节点集群) | 异步消息处理，系统解耦 |
+| **配置中心** | Etcd | 动态配置管理，分布式锁 |
+| **ORM** | GORM | 数据库操作 |
+| **测试** | Go Testing | 单元测试和集成测试 |
 
 ## 📁 项目结构
 
-```
+```bash
 seckill_system/
 ├── README.md
 ├── cmd/
@@ -70,180 +107,53 @@ seckill_system/
         └── router.go               # 路由配置
 ```
 
-## 🔄 核心业务流程
+## 🚀 快速开始
 
-### 1. 秒杀令牌获取流程
-```
-用户认证 → 检查秒杀开关 → 黑名单检查 → 商品验证 → 
-活动时间检查 → 库存检查 → 限流检查 → 生成令牌
-```
+### 环境要求
 
-### 2. 秒杀下单流程（分布式锁保护）
-```
-获取分布式锁 → 令牌验证 → Redis预减库存 → 数据库事务 → 
-乐观锁扣库存 → 创建订单 → 发送Kafka消息 → 释放分布式锁
-```
+- **操作系统**: Ubuntu 18.04+
+- **Go版本**: 1.24 或更高
+- **内存**: 至少 4GB RAM
+- **磁盘空间**: 至少 10GB 可用空间
 
-### 3. 支付流程
-```
-支付请求 → 支付处理 → 发送支付消息 → 
-异步更新订单状态 → 失败时恢复库存
-```
+### 一键部署
 
-## 🛡️ 安全与防护机制
-
-### 1. 分布式锁机制
-- **Etcd分布式锁**：基于租约和事务的强一致性锁
-- **防死锁**：自动TTL过期机制
-- **锁释放保证**：defer确保锁一定释放
-- **锁粒度控制**：商品级锁防止超卖
-
-### 2. 用户认证
-- JWT-like令牌机制
-- Redis存储用户会话
-- 令牌自动过期
-
-### 3. 限流防护
-- 基于Redis+Lua的用户级限流
-- 可动态配置的限流阈值
-- 防止恶意请求
-
-### 4. 库存安全
-- Redis预减库存防止超卖
-- 数据库乐观锁保证数据一致性
-- 失败时库存自动恢复
-- **分布式锁双重保护**：确保库存扣减的原子性
-
-### 5. 黑名单机制
-- Etcd存储黑名单信息
-- 支持自动过期
-- 动态管理恶意用户
-
-## ⚡ 性能优化特性
-
-### 1. 分布式并发控制
-- **Etcd分布式锁**：强一致性，防止集群脑裂
-- **锁竞争优化**：快速失败机制，避免长时间等待
-- **锁超时控制**：防止死锁，自动释放
-
-### 2. 缓存策略
-- Redis集群(6节点)缓存商品库存
-- 热点数据预加载
-- 多级缓存架构
-
-### 3. 异步处理
-- Kafka集群(3节点)消息队列解耦
-- 订单创建与后续处理异步化
-- 支付结果异步通知
-
-### 4. 数据库优化
-- 连接池配置
-- 事务管理
-- 乐观锁并发控制
-
-## 🚀 快速部署
-
-### 一键部署所有依赖服务
 ```bash
+# 克隆项目
+git clone <repository-url>
+cd seckill_system
+
 # 授予执行权限
 chmod +x run_services.sh
+chmod +x scripts/*.sh
 chmod +x scripts/*/*.sh
 
-# 一键启动所有服务
-bash ./run_services.sh
+# 一键部署所有服务（MySQL, Redis, Kafka, Etcd）
+./run_services.sh
 ```
 
 ### 分步部署
 
-#### 1. 安装MySQL
+#### 1. 安装依赖服务
+
 ```bash
+# 安装MySQL
 ./scripts/mysql/install_mysql.sh
-```
 
-#### 2. 安装Redis集群(6节点)
-```bash
+# 安装Redis集群(6节点)
 ./scripts/redis/install_redis.sh
-```
 
-#### 3. 安装Kafka集群(3节点)
-```bash
+# 安装Kafka集群(3节点)  
 ./scripts/kafka/install_kafka.sh
-```
 
-#### 4. 安装Etcd
-```bash
+# 安装Etcd
 ./scripts/etcd/install_etcd.sh
 ```
 
-#### 5. 启动应用
-```bash
-go run cmd/gateway/main.go
-```
+#### 2. 配置应用
 
-### 一键执行测试
-```bash
-# 授予执行权限
-chmod +x scripts/quick_test.sh
-chmod +x scripts/test_seckill.sh
+编辑 `conf/conf.yaml` 文件，根据实际环境调整配置：
 
-# 一键测试秒杀系统
-bash ./scripts/quick_test.sh
-```
-
-### 集群配置详情
-
-#### Redis集群配置
-- **节点数量**: 6节点 (3主3从)
-- **端口范围**: 7000-7005
-- **集群模式**: 自动分片和数据复制
-- **持久化**: RDB + AOF
-
-#### Kafka集群配置
-- **节点数量**: 3节点
-- **端口**: 9092, 9094, 9096
-- **副本因子**: 3
-- **分区数**: 可配置
-
-#### Etcd配置
-- **单节点模式**: 生产环境建议3节点集群
-- **数据持久化**: 启用
-- **客户端端口**: 2379
-- **对等端口**: 2380
-
-## 🧪 测试与验证
-
-### 运行测试套件
-```bash
-# 运行所有测试
-go test ./test/... -v
-
-# 运行分布式锁专项测试
-go test ./test/... -run TestDistributedLock -v
-
-# 测试覆盖率报告
-go test ./test/... -cover -coverprofile=coverage.out
-go tool cover -html=coverage.out
-```
-
-### 测试场景覆盖
-- ✅ 正常秒杀流程
-- ✅ 分布式锁并发安全(200+并发)
-- ✅ 库存超卖防护
-- ✅ 系统限流验证
-- ✅ 黑名单机制
-- ✅ 异常情况处理
-- ✅ 性能基准测试
-
-## 🔧 配置管理
-
-### 动态配置（通过Etcd）
-- 秒杀系统开关
-- 限流阈值配置
-- 黑名单管理
-- 实时配置更新监听
-- **分布式锁配置**：TTL时间、重试策略
-
-### 静态配置（conf/conf.yaml）
 ```yaml
 server:
   port: 8000
@@ -271,52 +181,200 @@ etcd:
   password: ""
 ```
 
-## 📊 API接口
+## 🧪 测试验证
+
+### 快速测试
+
+```bash
+# 运行快速测试套件
+./scripts/quick_test.sh
+```
+
+### 手动测试示例
+
+#### 1. 生成用户令牌
+```bash
+curl "http://localhost:8000/api/auth/create_user_token?user_id=1001"
+```
+
+#### 2. 获取秒杀令牌
+```bash
+curl -X POST "http://localhost:8000/api/seckill/token?gid=1001" \
+  -H "Authorization: <user_token>"
+```
+
+#### 3. 执行秒杀
+```bash
+curl -X POST "http://localhost:8000/api/seckill?gid=1001&token=<seckill_token>" \
+  -H "Authorization: <user_token>"
+```
+
+#### 4. 管理功能（需要admin权限）
+```bash
+# 预加载库存
+curl -X POST "http://localhost:8000/api/admin/preload/1001?admin=1"
+
+# 设置秒杀开关
+curl -X POST "http://localhost:8000/api/admin/config/seckill/enable?admin=1&enabled=true"
+
+# 查看黑名单
+curl "http://localhost:8000/api/admin/blacklist?admin=1"
+```
+
+## 📊 API接口文档
 
 ### 用户接口
-- `GET /api/goods/:id` - 获取商品信息
-- `POST /api/seckill/token` - 获取秒杀令牌
-- `POST /api/seckill` - 执行秒杀（受分布式锁保护）
-- `POST /api/payment/simulate` - 模拟支付
+
+| 方法 | 端点 | 描述 | 认证 |
+|------|------|------|------|
+| `GET` | `/api/goods/:id` | 获取商品信息 | 否 |
+| `POST` | `/api/seckill/token` | 获取秒杀令牌 | 是 |
+| `POST` | `/api/seckill` | 执行秒杀 | 是 |
+| `POST` | `/api/payment/simulate` | 模拟支付 | 是 |
+| `GET` | `/api/auth/create_user_token` | 生成用户令牌 | 否 |
+| `GET` | `/api/auth/verify_user_token` | 验证用户令牌 | 否 |
 
 ### 管理接口
-- `POST /api/admin/preload/:id` - 预加载库存
-- `POST /api/admin/config/seckill/enable` - 秒杀开关
-- `POST /api/admin/config/rate_limit` - 限流配置
-- `POST /api/admin/blacklist/add` - 添加黑名单
-- `GET /api/admin/blacklist` - 查看黑名单
 
-## 🎯 核心价值
+| 方法 | 端点 | 描述 | 权限 |
+|------|------|------|------|
+| `POST` | `/api/admin/preload/:id` | 预加载库存 | admin |
+| `POST` | `/api/admin/reset_db` | 重置数据库 | admin |
+| `POST` | `/api/admin/config/seckill/enable` | 设置秒杀开关 | admin |
+| `POST` | `/api/admin/config/rate_limit` | 设置限流配置 | admin |
+| `POST` | `/api/admin/blacklist/add` | 添加黑名单 | admin |
+| `GET` | `/api/admin/blacklist` | 获取黑名单 | admin |
 
-本项目通过**Etcd分布式锁**的深度集成，解决了秒杀系统最核心的**超卖问题**，同时保持了系统的高性能和可扩展性。完整的测试套件和自动化部署脚本确保了系统的稳定性和易用性，为高并发场景下的电商系统提供了生产就绪的解决方案。
+## 🛡️ 核心防护机制
 
-## 📈 性能预期
+### 1. 分布式锁机制
+- **基于Etcd**：强一致性分布式锁，防止集群脑裂
+- **防死锁**：自动TTL过期机制
+- **锁粒度控制**：用户级和商品级锁，减少竞争
+- **快速失败**：锁获取超时立即返回，避免阻塞
 
-在当前架构下，系统预计可以支持：
-- **单机QPS**: 10,000+
-- **并发用户**: 5,000+
-- **订单处理**: 1,000+ TPS
-- **数据一致性**: 99.99%
-- **分布式锁性能**: < 5ms获取时间
-- **并发安全**: 200+并发下零超卖
+### 2. 库存安全
+- **Redis预减库存**：内存操作，高性能
+- **数据库乐观锁**：版本号控制，数据一致性
+- **失败恢复**：异常时自动恢复Redis库存
+- **双重校验**：Redis + MySQL双重库存检查
 
-## 🔮 扩展方向
+### 3. 限流防护
+- **用户级限流**：基于Redis+Lua脚本的原子操作
+- **动态配置**：通过Etcd实时调整限流阈值
+- **多维度限流**：IP、用户ID、商品ID等多个维度
 
-1. **监控告警**: 集成Prometheus + Grafana监控锁竞争情况
-2. **分布式追踪**: 集成Jaeger追踪锁获取和业务处理链路
-3. **容器化**: Docker + Kubernetes部署
-4. **数据库分库分表**: 应对更大数据量
-5. **多级缓存**: 引入本地缓存减少Redis压力
-6. **限流升级**: 集成Sentinel等专业限流组件
-7. **锁优化**: 实现可重入锁、读写锁等高级锁特性
+### 4. 安全验证
+- **令牌机制**：JWT-like用户令牌和秒杀令牌
+- **黑名单**：恶意用户隔离
+- **活动时间校验**：严格的秒杀时间控制
+- **参数验证**：全面的输入参数校验
 
-## 📝 使用说明
+## ⚡ 性能指标
 
-1. **环境要求**: Ubuntu Linux，Go 1.24+
-2. **依赖安装**: 使用提供的脚本一键安装所有依赖
-3. **配置调整**: 根据实际环境修改conf/目录下的配置文件
-4. **服务启动**: 使用run_services.sh启动所有服务
-5. **测试验证**: 运行测试套件验证系统功能
-6. **压力测试**: 可使用JMeter等工具进行性能测试
+| 指标 | 预期值 | 说明 |
+|------|--------|------|
+| **单机QPS** | 10,000+ | 网关层处理能力 |
+| **并发用户** | 5,000+ | 同时在线用户数 |
+| **订单处理** | 1,000+ TPS | 下单事务处理能力 |
+| **分布式锁性能** | < 5ms | 锁获取平均时间 |
+| **数据一致性** | 99.99% | 零超卖保证 |
+| **响应时间** | < 100ms | API平均响应时间 |
 
-项目提供了完整的部署脚本和配置，方便从零开始部署整个秒杀系统环境
+## 🔧 配置说明
+
+### 动态配置（Etcd）
+
+系统支持通过Etcd进行实时配置更新：
+
+```bash
+# 开启/关闭秒杀系统
+curl -X POST "http://localhost:8000/api/admin/config/seckill/enable?admin=1&enabled=true"
+
+# 设置用户限流（次/分钟）
+curl -X POST "http://localhost:8000/api/admin/config/rate_limit?admin=1&limit=50"
+
+# 添加用户到黑名单
+curl -X POST "http://localhost:8000/api/admin/blacklist/add?admin=1&user_id=9999&reason=test"
+```
+
+### 静态配置
+
+主要配置文件 `conf/conf.yaml`：
+
+```yaml
+server:
+  port: 8000                    # 服务端口
+
+database:
+  host: 127.0.0.1              # MySQL主机
+  port: 3306                   # MySQL端口
+  user: root                   # 数据库用户
+  password: "123456"           # 数据库密码
+  name: seckill_db             # 数据库名
+
+redis:
+  cluster_nodes: "127.0.0.1:7000,127.0.0.1:7001,127.0.0.1:7002,127.0.0.1:7003,127.0.0.1:7004,127.0.0.1:7005"
+  password: ""                 # Redis密码
+
+kafka:
+  brokers: "127.0.0.1:9092,127.0.0.1:9094,127.0.0.1:9096"
+  topic: seckill_orders        # 消息主题
+  group_id: seckill_group      # 消费者组
+
+etcd:
+  host: 127.0.0.1:2379         # Etcd地址
+  dial_timeout: 5              # 连接超时(秒)
+```
+
+## 🐛 故障排除
+
+### 常见问题
+
+1. **服务启动失败**
+   - 检查端口占用：`netstat -tulpn | grep 8000`
+   - 验证依赖服务状态：MySQL、Redis、Kafka、Etcd
+
+2. **Redis连接失败**
+   - 确认Redis集群所有节点正常运行
+   - 检查防火墙设置
+
+3. **分布式锁获取失败**
+   - 检查Etcd服务状态
+   - 查看锁竞争情况，调整锁超时时间
+
+4. **性能问题**
+   - 监控系统资源使用情况
+   - 调整连接池配置
+   - 检查慢查询日志
+
+### 日志查看
+
+```bash
+# 查看应用日志
+tail -f /var/log/seckill_system.log
+
+# 查看测试日志
+cat seckill_test.log
+
+# 查看服务状态
+systemctl status mysql
+systemctl status redis
+systemctl status kafka
+systemctl status etcd
+```
+
+## 🔮 扩展规划
+
+### 短期优化
+- [ ] 集成Prometheus + Grafana监控
+- [ ] 添加Jaeger分布式追踪
+- [ ] 实现数据库读写分离
+- [ ] 优化连接池配置
+
+### 长期规划
+- [ ] 容器化部署 (Docker + Kubernetes)
+- [ ] 多数据中心部署
+- [ ] 集成更专业的限流组件 (Sentinel)
+- [ ] 实现灰度发布能力
+- [ ] 添加智能风控系统
