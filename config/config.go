@@ -71,6 +71,54 @@ func (ec *EtcdConfig) GetEtcdEndpoints() []string {
 	return []string{ec.Host}
 }
 
+// Validate 验证配置完整性
+func (cfg *Config) Validate() error {
+	if cfg.Server.Port <= 0 || cfg.Server.Port > 65535 {
+		return fmt.Errorf("server port must be between 1 and 65535, got %d", cfg.Server.Port)
+	}
+
+	if cfg.Database.Host == "" {
+		return fmt.Errorf("database host is required")
+	}
+	if cfg.Database.Port <= 0 || cfg.Database.Port > 65535 {
+		return fmt.Errorf("database port must be between 1 and 65535, got %d", cfg.Database.Port)
+	}
+	if cfg.Database.User == "" {
+		return fmt.Errorf("database user is required")
+	}
+	if cfg.Database.Name == "" {
+		return fmt.Errorf("database name is required")
+	}
+
+	if cfg.Redis.ClusterNodes == "" {
+		return fmt.Errorf("redis cluster nodes are required")
+	}
+	nodes := cfg.Redis.GetRedisClusterNodes()
+	if len(nodes) == 0 {
+		return fmt.Errorf("no valid redis cluster nodes found")
+	}
+
+	if cfg.Kafka.Brokers == "" {
+		return fmt.Errorf("kafka brokers are required")
+	}
+	brokers := cfg.Kafka.GetKafkaBrokers()
+	if len(brokers) == 0 {
+		return fmt.Errorf("no valid kafka brokers found")
+	}
+	if cfg.Kafka.Topic == "" {
+		return fmt.Errorf("kafka topic is required")
+	}
+
+	if cfg.Etcd.Host == "" {
+		return fmt.Errorf("etcd host is required")
+	}
+	if cfg.Etcd.DialTimeout <= 0 {
+		return fmt.Errorf("etcd dial timeout must be positive")
+	}
+
+	return nil
+}
+
 // InitConfig 从指定路径加载YAML配置文件
 func InitConfig(path string) error {
 	// 读取配置文件内容
@@ -85,8 +133,19 @@ func InitConfig(path string) error {
 		return fmt.Errorf("failed to unmarshal config: %v", err)
 	}
 
+	// 验证配置完整性
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("config validation failed: %v", err)
+	}
+
 	// 将解析后的配置赋值给全局变量
 	AppConfig = &cfg
 	log.Printf("Configuration loaded successfully from: %s", path)
+	log.Printf("Server Port: %d", cfg.Server.Port)
+	log.Printf("Database: %s@%s:%d/%s", cfg.Database.User, cfg.Database.Host, cfg.Database.Port, cfg.Database.Name)
+	log.Printf("Redis Nodes: %s", cfg.Redis.ClusterNodes)
+	log.Printf("Kafka Brokers: %s, Topic: %s", cfg.Kafka.Brokers, cfg.Kafka.Topic)
+	log.Printf("Etcd Host: %s", cfg.Etcd.Host)
+
 	return nil
 }

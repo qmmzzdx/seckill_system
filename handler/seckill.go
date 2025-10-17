@@ -38,26 +38,32 @@ func (h *SeckillHandler) CreateOrder(ctx context.Context, userId, goodsId int64)
 	// 生成唯一订单ID
 	orderId := generateOrderId(userId, goodsId)
 
-	// defer确保Redis库存恢复
-	var stockRestored bool
-	defer func() {
-		if stockRestored {
-			h.redisRepo.IncrGoodsStock(goodsId)
-		}
-	}()
-
 	// 第一步：在Redis中预扣减库存
 	remaining, err := h.redisRepo.DecrGoodsStock(goodsId)
 	if err != nil {
 		return "", fmt.Errorf("decrease goods stock failed: %v", err)
 	}
 
+	// 库存恢复标志，确保异常时库存恢复
+	needRestore := false
+	defer func() {
+		if needRestore {
+			log.Printf("Restoring stock for goods %d due to failed order creation", goodsId)
+			if _, restoreErr := h.redisRepo.IncrGoodsStock(goodsId); restoreErr != nil {
+				log.Printf("Failed to restore stock for goods %d: %v", goodsId, restoreErr)
+			} else {
+				log.Printf("Successfully restored stock for goods %d", goodsId)
+			}
+		}
+	}()
+
 	// 检查库存是否充足
 	if remaining < 0 {
-		// 库存不足，恢复预扣减的库存
-		h.redisRepo.IncrGoodsStock(goodsId)
+		needRestore = true // 标记需要恢复库存
 		return "", errors.New("goods sold out")
 	}
+
+	needRestore = true // 标记需要恢复，后续失败时会恢复
 
 	// 在事务中执行数据库操作
 	err = h.goodRepo.WithTransaction(func(tx *gorm.DB) error {
@@ -75,8 +81,6 @@ func (h *SeckillHandler) CreateOrder(ctx context.Context, userId, goodsId int64)
 
 		// 检查库存扣减是否成功
 		if rowsAffected == 0 {
-			// 库存不足，恢复Redis中的预扣减
-			h.redisRepo.IncrGoodsStock(goodsId)
 			return errors.New("seckill failed, stock not enough")
 		}
 
@@ -90,7 +94,7 @@ func (h *SeckillHandler) CreateOrder(ctx context.Context, userId, goodsId int64)
 			return fmt.Errorf("create order failed: %v", err)
 		}
 
-		// 发送订单创建消息到Kafka
+		// 发送订单创建消息到Kafka（带重试机制）
 		orderMsg := &model.OrderMessage{
 			OrderId:   orderId,
 			UserId:    userId,
@@ -99,9 +103,11 @@ func (h *SeckillHandler) CreateOrder(ctx context.Context, userId, goodsId int64)
 			Status:    model.OrderStatusCreated, // 订单创建成功
 			CreatedAt: time.Now(),
 		}
-		if err := h.kafkaRepo.SendOrderMessage(context.Background(), orderMsg); err != nil {
-			log.Printf("Failed to send order message to Kafka: %v", err)
-			// 不返回错误，保证订单创建主流程正常
+
+		// 添加Kafka消息发送重试
+		if err := h.sendOrderMessageWithRetry(ctx, orderMsg, 3); err != nil {
+			log.Printf("Failed to send order message to Kafka after retries: %v", err)
+			// 不返回错误，保证订单创建主流程正常，记录日志即可
 		}
 
 		log.Printf("Order created successfully: OrderID=%s, UserID=%d, GoodsID=%d",
@@ -111,10 +117,36 @@ func (h *SeckillHandler) CreateOrder(ctx context.Context, userId, goodsId int64)
 	})
 
 	if err != nil {
-		stockRestored = true
+		// 事务失败，保持needRestore=true，defer会恢复库存
 		return "", err
 	}
+
+	// 所有操作成功，取消库存恢复
+	needRestore = false
 	return orderId, nil
+}
+
+// sendOrderMessageWithRetry 带重试的Kafka消息发送
+func (h *SeckillHandler) sendOrderMessageWithRetry(ctx context.Context, orderMsg *model.OrderMessage, maxRetries int) error {
+	var lastErr error
+	for i := 0; i < maxRetries; i++ {
+		err := h.kafkaRepo.SendOrderMessage(ctx, orderMsg)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		log.Printf("Kafka send attempt %d failed: %v", i+1, err)
+
+		// 指数退避
+		backoff := time.Duration(i*i) * time.Second
+		select {
+		case <-time.After(backoff):
+			continue
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return fmt.Errorf("failed to send message after %d retries: %v", maxRetries, lastErr)
 }
 
 // SimulatePayment 模拟支付处理
@@ -126,17 +158,37 @@ func (h *SeckillHandler) SimulatePayment(ctx context.Context, orderId string, su
 	} else {
 		status = model.OrderStatusPaymentFailed
 		log.Printf("Payment failed for order: %s", orderId)
-		// 支付失败，记录需要恢复库存
-		log.Printf("Need to restore stock for failed payment order: %s", orderId)
 	}
 
-	// 发送支付结果消息到Kafka
-	if err := h.kafkaRepo.SendPaymentMessage(ctx, orderId, status); err != nil {
-		log.Printf("Failed to send payment message to Kafka: %v", err)
+	// 发送支付结果消息到Kafka（带重试）
+	if err := h.sendPaymentMessageWithRetry(ctx, orderId, status, 3); err != nil {
+		log.Printf("Failed to send payment message to Kafka after retries: %v", err)
 		return err
 	}
-
 	return nil
+}
+
+// sendPaymentMessageWithRetry 带重试的支付消息发送
+func (h *SeckillHandler) sendPaymentMessageWithRetry(ctx context.Context, orderId string, status int32, maxRetries int) error {
+	var lastErr error
+	for i := 0; i < maxRetries; i++ {
+		err := h.kafkaRepo.SendPaymentMessage(ctx, orderId, status)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		log.Printf("Kafka payment message send attempt %d failed: %v", i+1, err)
+
+		// 指数退避
+		backoff := time.Duration(i*i) * time.Second
+		select {
+		case <-time.After(backoff):
+			continue
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return fmt.Errorf("failed to send payment message after %d retries: %v", maxRetries, lastErr)
 }
 
 // generateOrderId 生成唯一订单ID

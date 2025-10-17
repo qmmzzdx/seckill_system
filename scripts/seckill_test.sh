@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# 秒杀系统完整测试脚本 - 优化版
+# 秒杀系统完整测试脚本
 # 基于当前路由配置
 
 # 配置
@@ -182,7 +182,8 @@ function reset_environment()
     # 等待配置生效
     sleep 1
     
-    if $reset_ok; then
+    if $reset_ok
+    then
         log_success "测试环境重置完成"
     else
         log_warning "测试环境重置部分失败，但继续测试..."
@@ -600,7 +601,8 @@ function admin_functions_test()
         admin_ok=false
     fi
     
-    if $admin_ok; then
+    if $admin_ok
+    then
         log_success "管理功能测试完成"
     else
         log_warning "管理功能测试部分失败"

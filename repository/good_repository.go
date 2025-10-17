@@ -31,12 +31,12 @@ func (dao *GoodRepository) ResetDataBase(goodsId int) error {
 			return fmt.Errorf("invalid goodsId: %d", goodsId)
 		}
 
-		// 1. 清除指定商品的所有订单记录
+		// 清除指定商品的所有订单记录
 		if err := dao.ClearOrderByGoodsId(tx, int64(goodsId)); err != nil {
 			return fmt.Errorf("failed to clear orders: %w", err)
 		}
 
-		// 2. 验证商品是否存在
+		// 验证商品是否存在
 		if _, err := dao.FindGoodById(int64(goodsId)); err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return fmt.Errorf("goods not found: %d", goodsId)
@@ -44,7 +44,7 @@ func (dao *GoodRepository) ResetDataBase(goodsId int) error {
 			return fmt.Errorf("failed to find goods: %w", err)
 		}
 
-		// 3. 重置指定商品的促销库存数量
+		// 重置指定商品的促销库存数量
 		if err := dao.ResetPromotionCountByGoodsId(tx, int64(goodsId), int64(global.BookStockCount)); err != nil {
 			return fmt.Errorf("failed to reset promotion count: %w", err)
 		}

@@ -53,11 +53,23 @@ func (gs *GoodService) VerifyUserToken(token string) (int64, error) {
 func (gs *GoodService) GenerateSeckillToken(userId, goodsId int64) (string, error) {
 	// 用户级锁，防止同一用户重复获取令牌
 	userLockKey := fmt.Sprintf("user_token_lock_%d_%d", userId, goodsId)
-	locked, err := gs.EtcdRepo.GetDistributedLock(context.Background(), userLockKey, 10)
+
+	// 使用带超时的context
+	lockCtx, lockCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer lockCancel()
+
+	locked, err := gs.EtcdRepo.GetDistributedLock(lockCtx, userLockKey, 10)
 	if err != nil || !locked {
-		return "", errors.New("please don't repeat request")
+		return "", fmt.Errorf("please don't repeat request: %v", err)
 	}
-	defer gs.EtcdRepo.ReleaseDistributedLock(context.Background(), userLockKey)
+	defer func() {
+		// 使用新的context释放锁，避免使用已取消的context
+		releaseCtx, releaseCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer releaseCancel()
+		if releaseErr := gs.EtcdRepo.ReleaseDistributedLock(releaseCtx, userLockKey); releaseErr != nil {
+			log.Printf("Failed to release user token lock: %v", releaseErr)
+		}
+	}()
 
 	// 检查秒杀系统是否开启
 	enabled, err := gs.EtcdRepo.GetSeckillEnabled(context.Background())
@@ -208,20 +220,38 @@ func (gs *GoodService) SeckillWithToken(userId, goodsId int64, tokenId string) (
 	// 验证令牌有效性
 	valid, err := gs.VerifySeckillToken(tokenId, userId, goodsId)
 	if err != nil || !valid {
-		return "", err
+		return "", fmt.Errorf("invalid seckill token: %v", err)
 	}
 
-	// 使用用户级锁，减少竞争
+	// 改进分布式锁机制，避免死锁和锁竞争问题
 	lockKey := fmt.Sprintf("seckill_user_%d", userId)
-	locked, err := gs.EtcdRepo.GetDistributedLock(context.Background(), lockKey, 3) // 3秒超时
-	if err != nil || !locked {
+
+	// 使用独立的context获取锁
+	lockCtx, lockCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer lockCancel()
+
+	locked, err := gs.EtcdRepo.GetDistributedLock(lockCtx, lockKey, 10) // 延长TTL到10秒
+	if err != nil {
+		return "", fmt.Errorf("system busy, failed to acquire lock: %v", err)
+	}
+	if !locked {
 		return "", errors.New("system busy, please try again")
 	}
-	defer gs.EtcdRepo.ReleaseDistributedLock(context.Background(), lockKey)
 
-	orderId, err := gs.SeckillHandler.CreateOrder(context.Background(), userId, goodsId)
+	// 使用新的context执行业务逻辑，避免锁过期影响业务
+	businessCtx := context.Background()
+	defer func() {
+		// 使用新的context释放锁
+		releaseCtx, releaseCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer releaseCancel()
+		if releaseErr := gs.EtcdRepo.ReleaseDistributedLock(releaseCtx, lockKey); releaseErr != nil {
+			log.Printf("Warning: Failed to release distributed lock %s: %v", lockKey, releaseErr)
+		}
+	}()
+
+	orderId, err := gs.SeckillHandler.CreateOrder(businessCtx, userId, goodsId)
 	if err != nil {
-		return "", errors.New("seckill failed: " + err.Error())
+		return "", fmt.Errorf("seckill failed: %v", err)
 	}
 	return orderId, nil
 }
