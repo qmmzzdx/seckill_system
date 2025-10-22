@@ -10,8 +10,8 @@ import (
 // AuthMiddleware 用户认证中间件
 // 验证请求头中的Authorization令牌，解析用户ID并存入上下文
 func AuthMiddleware() gin.HandlerFunc {
-	// 初始化商品服务，用于令牌验证
-	goodService := service.NewGoodService()
+	// 获取商品服务对象，用于令牌验证
+	goodService := service.GetGoodService()
 
 	return func(c *gin.Context) {
 		// 从请求头获取Authorization令牌

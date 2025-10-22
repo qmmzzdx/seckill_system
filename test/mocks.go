@@ -199,7 +199,7 @@ func (m *MockRedisRepository) UserRateLimit(userId int64, limit int64, duration 
 
 // MockKafkaRepository Kafka仓库的模拟实现
 type MockKafkaRepository struct {
-	Messages       []interface{} // 消息存储
+	Messages       []any // 消息存储
 	ShouldError    bool          // 是否模拟错误
 	SendOrderErr   error         // 发送订单消息错误
 	SendPaymentErr error         // 发送支付消息错误
@@ -208,7 +208,7 @@ type MockKafkaRepository struct {
 // NewMockKafkaRepository 创建模拟Kafka仓库实例
 func NewMockKafkaRepository() *MockKafkaRepository {
 	return &MockKafkaRepository{
-		Messages: make([]interface{}, 0),
+		Messages: make([]any, 0),
 	}
 }
 
@@ -226,7 +226,7 @@ func (m *MockKafkaRepository) SendPaymentMessage(ctx context.Context, orderId st
 	if m.ShouldError || m.SendPaymentErr != nil {
 		return errors.New("mock kafka error")
 	}
-	m.Messages = append(m.Messages, map[string]interface{}{
+	m.Messages = append(m.Messages, map[string]any{
 		"order_id": orderId,
 		"status":   status,
 	})

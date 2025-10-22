@@ -57,7 +57,7 @@ func (k *KafkaRepository) SendOrderMessage(ctx context.Context, order *model.Ord
 // SendPaymentMessage 发送支付消息到Kafka
 func (k *KafkaRepository) SendPaymentMessage(ctx context.Context, orderId string, status int32) error {
 	// 构造支付消息结构
-	paymentMsg := map[string]interface{}{
+	paymentMsg := map[string]any{
 		"order_id": orderId,
 		"status":   status,
 		"time":     time.Now(), // 记录支付时间
@@ -146,7 +146,7 @@ func (k *KafkaRepository) ConsumePaymentMessages(ctx context.Context, handler fu
 		}
 
 		// 反序列化支付消息
-		var paymentMsg map[string]interface{}
+		var paymentMsg map[string]any
 		if err := json.Unmarshal(msg.Value, &paymentMsg); err != nil {
 			log.Printf("Failed to unmarshal payment message: %v", err)
 			continue

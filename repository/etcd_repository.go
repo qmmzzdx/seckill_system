@@ -97,7 +97,7 @@ func (e *ETCDRepository) AddToBlacklist(ctx context.Context, userId int64, reaso
 	key := fmt.Sprintf("%s%d", global.EtcdKeyBlacklist, userId)
 
 	// 构造黑名单信息结构
-	blacklistInfo := map[string]interface{}{
+	blacklistInfo := map[string]any{
 		"user_id":  userId,
 		"reason":   reason,
 		"add_time": time.Now().Format(time.RFC3339),
@@ -151,16 +151,16 @@ func (e *ETCDRepository) IsInBlacklist(ctx context.Context, userId int64) (bool,
 }
 
 // GetBlacklist 获取黑名单列表
-func (e *ETCDRepository) GetBlacklist(ctx context.Context) ([]map[string]interface{}, error) {
+func (e *ETCDRepository) GetBlacklist(ctx context.Context) ([]map[string]any, error) {
 	// 使用前缀查询获取所有黑名单条目
 	resp, err := e.client.Get(ctx, global.EtcdKeyBlacklist, clientv3.WithPrefix())
 	if err != nil {
 		return nil, fmt.Errorf("get blacklist failed: %v", err)
 	}
 
-	var blacklist []map[string]interface{}
+	var blacklist []map[string]any
 	for _, kv := range resp.Kvs {
-		var info map[string]interface{}
+		var info map[string]any
 		// 反序列化JSON数据
 		if err := json.Unmarshal(kv.Value, &info); err != nil {
 			log.Printf("Failed to unmarshal blacklist info: %v", err)

@@ -19,7 +19,7 @@ type GoodController struct {
 // NewGoodController 创建GoodController实例
 func NewGoodController() *GoodController {
 	return &GoodController{
-		GoodService: service.NewGoodService(),
+		GoodService: service.GetGoodService(),
 	}
 }
 

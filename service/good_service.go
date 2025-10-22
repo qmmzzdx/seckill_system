@@ -9,7 +9,14 @@ import (
 	"seckill_system/handler"
 	"seckill_system/model"
 	"seckill_system/repository"
+	"sync"
 	"time"
+)
+
+// 单例模式相关变量
+var (
+	goodServiceInstance *GoodService
+	goodServiceOnce     sync.Once
 )
 
 // GoodService 秒杀商品服务，封装核心业务逻辑
@@ -19,6 +26,7 @@ type GoodService struct {
 	KafkaRepo      *repository.KafkaRepository // Kafka消息队列操作
 	EtcdRepo       *repository.ETCDRepository  // ETCD配置中心操作
 	SeckillHandler *handler.SeckillHandler     // 秒杀处理器
+	initOnce       sync.Once                   // 初始化操作的同步控制
 }
 
 // NewGoodService 创建商品服务实例
@@ -31,12 +39,22 @@ func NewGoodService() *GoodService {
 		SeckillHandler: handler.NewSeckillHandler(),
 	}
 
-	// 启动后台消费者和监听器
-	service.StartOrderConsumer()   // 启动订单消息消费者
-	service.StartPaymentConsumer() // 启动支付消息消费者
-	service.StartConfigWatcher()   // 启动配置变更监听
-
+	// 使用 sync.Once 确保后台任务只启动一次
+	service.initOnce.Do(func() {
+		// 启动后台消费者和监听器
+		service.StartOrderConsumer()   // 启动订单消息消费者
+		service.StartPaymentConsumer() // 启动支付消息消费者
+		service.StartConfigWatcher()   // 启动配置变更监听
+	})
 	return service
+}
+
+// GetGoodService 获取商品服务单例
+func GetGoodService() *GoodService {
+	goodServiceOnce.Do(func() {
+		goodServiceInstance = NewGoodService()
+	})
+	return goodServiceInstance
 }
 
 // GenerateUserToken 生成用户令牌(JWT)
