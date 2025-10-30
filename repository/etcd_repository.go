@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"seckill_system/global"
-	"seckill_system/model"
 	"strconv"
 	"time"
 
@@ -64,7 +63,7 @@ func (e *ETCDRepository) GetRateLimitConfig(ctx context.Context) (int64, error) 
 	// 从ETCD获取限流配置
 	resp, err := e.client.Get(ctx, global.EtcdKeyRateLimit)
 	if err != nil {
-		return 10, fmt.Errorf("get rate limit config failed: %v", err) // 默认返回5次/分钟
+		return 10, fmt.Errorf("get rate limit config failed: %v", err) // 默认返回10次/分钟
 	}
 
 	// 如果不存在配置项，返回默认值
@@ -218,37 +217,6 @@ func (e *ETCDRepository) ReleaseDistributedLock(ctx context.Context, key string)
 		return fmt.Errorf("delete etcd key failed: %v", err)
 	}
 	return nil
-}
-
-// PutConfig 存储配置
-func (e *ETCDRepository) PutConfig(ctx context.Context, key, value string) error {
-	// 简单写入配置
-	_, err := e.client.Put(ctx, key, value)
-	if err != nil {
-		return fmt.Errorf("put etcd config failed: %v", err)
-	}
-	return nil
-}
-
-// GetConfig 获取配置
-func (e *ETCDRepository) GetConfig(ctx context.Context, key string) (model.ETCDConfig, error) {
-	// 获取配置值
-	resp, err := e.client.Get(ctx, key)
-	if err != nil {
-		return model.ETCDConfig{}, fmt.Errorf("get etcd config failed: %v", err)
-	}
-
-	// 处理空结果
-	if len(resp.Kvs) == 0 {
-		return model.ETCDConfig{}, nil
-	}
-
-	// 返回配置结构
-	return model.ETCDConfig{
-		Key:     key,
-		Value:   string(resp.Kvs[0].Value),
-		Version: resp.Kvs[0].Version,
-	}, nil
 }
 
 // Close 关闭ETCD客户端连接

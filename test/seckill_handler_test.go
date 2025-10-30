@@ -3,7 +3,9 @@ package test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -263,8 +265,8 @@ func (h *TestSeckillHandler) SimulatePayment(ctx context.Context, orderId string
 
 // generateOrderId 生成订单ID - 辅助函数
 func generateOrderId(userId, goodsId int64) string {
-	// 简化的订单ID生成逻辑，实际项目中应该更复杂
-	return "test-order-123"
+	// 格式: 用户ID-商品ID-时间戳
+	return fmt.Sprintf("%d-%d-%d", userId, goodsId, time.Now().UnixNano())
 }
 
 // ==================== 测试用例 ====================

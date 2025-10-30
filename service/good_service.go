@@ -26,7 +26,6 @@ type GoodService struct {
 	KafkaRepo      *repository.KafkaRepository // Kafka消息队列操作
 	EtcdRepo       *repository.ETCDRepository  // ETCD配置中心操作
 	SeckillHandler *handler.SeckillHandler     // 秒杀处理器
-	initOnce       sync.Once                   // 初始化操作的同步控制
 }
 
 // NewGoodService 创建商品服务实例
@@ -39,13 +38,9 @@ func NewGoodService() *GoodService {
 		SeckillHandler: handler.NewSeckillHandler(),
 	}
 
-	// 使用 sync.Once 确保后台任务只启动一次
-	service.initOnce.Do(func() {
-		// 启动后台消费者和监听器
-		service.StartOrderConsumer()   // 启动订单消息消费者
-		service.StartPaymentConsumer() // 启动支付消息消费者
-		service.StartConfigWatcher()   // 启动配置变更监听
-	})
+	service.StartOrderConsumer()   // 启动订单消息消费者
+	service.StartPaymentConsumer() // 启动支付消息消费者
+	service.StartConfigWatcher()   // 启动配置变更监听
 	return service
 }
 
