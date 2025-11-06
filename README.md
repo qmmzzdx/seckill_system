@@ -179,6 +179,13 @@ etcd:
   dial_timeout: 5
   username: ""
   password: ""
+
+log:
+  level: "info"
+  file_path: "logs"
+  max_size: 20  # MB
+
+environment: "development"
 ```
 
 ## 🧪 测试验证
@@ -298,35 +305,6 @@ curl -X POST "http://localhost:8000/api/admin/config/rate_limit?admin=1&limit=50
 curl -X POST "http://localhost:8000/api/admin/blacklist/add?admin=1&user_id=9999&reason=test"
 ```
 
-### 静态配置
-
-主要配置文件 `conf/conf.yaml`：
-
-```yaml
-server:
-  port: 8000                    # 服务端口
-
-database:
-  host: 127.0.0.1              # MySQL主机
-  port: 3306                   # MySQL端口
-  user: root                   # 数据库用户
-  password: "123456"           # 数据库密码
-  name: seckill_db             # 数据库名
-
-redis:
-  cluster_nodes: "127.0.0.1:7000,127.0.0.1:7001,127.0.0.1:7002,127.0.0.1:7003,127.0.0.1:7004,127.0.0.1:7005"
-  password: ""                 # Redis密码
-
-kafka:
-  brokers: "127.0.0.1:9092,127.0.0.1:9094,127.0.0.1:9096"
-  topic: seckill_orders        # 消息主题
-  group_id: seckill_group      # 消费者组
-
-etcd:
-  host: 127.0.0.1:2379         # Etcd地址
-  dial_timeout: 5              # 连接超时(秒)
-```
-
 ## 🐛 故障排除
 
 ### 常见问题
@@ -378,3 +356,4 @@ systemctl status etcd
 - [ ] 集成更专业的限流组件 (Sentinel)
 - [ ] 实现灰度发布能力
 - [ ] 添加智能风控系统
+
