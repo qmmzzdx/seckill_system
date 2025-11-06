@@ -22,3 +22,10 @@ etcd:
   dial_timeout: 5
   username: ""
   password: ""
+
+log:
+  level: "info"
+  file_path: "logs"
+  max_size: 20  # MB
+
+environment: "development"

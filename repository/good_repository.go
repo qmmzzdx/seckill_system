@@ -3,6 +3,7 @@ package repository
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"seckill_system/global"
 	"seckill_system/model"
 
@@ -33,22 +34,42 @@ func (dao *GoodRepository) ResetDataBase(goodsId int) error {
 
 		// 清除指定商品的所有订单记录
 		if err := dao.ClearOrderByGoodsId(tx, int64(goodsId)); err != nil {
+			slog.Error("Failed to clear orders during reset",
+				"goods_id", goodsId,
+				"error", err,
+			)
 			return fmt.Errorf("failed to clear orders: %w", err)
 		}
 
 		// 验证商品是否存在
 		if _, err := dao.FindGoodById(int64(goodsId)); err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
+				slog.Warn("Goods not found during reset",
+					"goods_id", goodsId,
+				)
 				return fmt.Errorf("goods not found: %d", goodsId)
 			}
+			slog.Error("Failed to find goods during reset",
+				"goods_id", goodsId,
+				"error", err,
+			)
 			return fmt.Errorf("failed to find goods: %w", err)
 		}
 
 		// 重置指定商品的促销库存数量
 		if err := dao.ResetPromotionCountByGoodsId(tx, int64(goodsId), int64(global.BookStockCount)); err != nil {
+			slog.Error("Failed to reset promotion count during reset",
+				"goods_id", goodsId,
+				"stock_count", global.BookStockCount,
+				"error", err,
+			)
 			return fmt.Errorf("failed to reset promotion count: %w", err)
 		}
 
+		slog.Info("Database reset completed successfully",
+			"goods_id", goodsId,
+			"stock_count", global.BookStockCount,
+		)
 		return nil
 	})
 }
@@ -58,6 +79,17 @@ func (dao *GoodRepository) FindGoodById(goodsId int64) (model.Goods, error) {
 	var good model.Goods
 	// 根据goods_id查询商品信息
 	err := dao.db.Where("goods_id = ?", goodsId).First(&good).Error
+	if err != nil {
+		slog.Warn("Good not found in database",
+			"goods_id", goodsId,
+			"error", err,
+		)
+	} else {
+		slog.Info("Good found in database",
+			"goods_id", goodsId,
+			"title", good.Title,
+		)
+	}
 	return good, err
 }
 
@@ -66,6 +98,18 @@ func (dao *GoodRepository) GetPromotionByGoodsId(goodsId int64) (model.Promotion
 	var promotion model.PromotionSecKill
 	// 根据goods_id查询促销信息
 	err := dao.db.Where("goods_id = ?", goodsId).First(&promotion).Error
+	if err != nil {
+		slog.Warn("Promotion not found in database",
+			"goods_id", goodsId,
+			"error", err,
+		)
+	} else {
+		slog.Info("Promotion found in database",
+			"goods_id", goodsId,
+			"ps_count", promotion.PsCount,
+			"version", promotion.Version,
+		)
+	}
 	return promotion, err
 }
 
@@ -79,6 +123,20 @@ func (dao *GoodRepository) OccReduceOnePromotionByGoodsId(goodsId int64, version
 			"ps_count": gorm.Expr("ps_count - 1"), // 库存减1
 			"version":  gorm.Expr("version + 1"),  // 版本号加1
 		})
+
+	if result.Error != nil {
+		slog.Error("Failed to reduce promotion count",
+			"goods_id", goodsId,
+			"version", version,
+			"error", result.Error,
+		)
+	} else {
+		slog.Info("Promotion count reduced",
+			"goods_id", goodsId,
+			"version", version,
+			"rows_affected", result.RowsAffected,
+		)
+	}
 	// 返回受影响的行数和错误信息
 	return result.RowsAffected, result.Error
 }
@@ -86,28 +144,74 @@ func (dao *GoodRepository) OccReduceOnePromotionByGoodsId(goodsId int64, version
 // AddSuccessKilled 添加秒杀成功记录
 // 在事务中创建秒杀成功订单
 func (dao *GoodRepository) AddSuccessKilled(tx *gorm.DB, order *model.SuccessKilled) error {
-	return tx.Create(order).Error
+	err := tx.Create(order).Error
+	if err != nil {
+		slog.Error("Failed to add success killed record",
+			"user_id", order.UserId,
+			"goods_id", order.GoodsId,
+			"error", err,
+		)
+	} else {
+		slog.Info("Success killed record added",
+			"user_id", order.UserId,
+			"goods_id", order.GoodsId,
+			"state", order.State,
+		)
+	}
+	return err
 }
 
 // ClearOrderByGoodsId 清除指定商品的所有订单记录
 func (dao *GoodRepository) ClearOrderByGoodsId(tx *gorm.DB, goodsId int64) error {
-	// 删除指定商品的所有秒杀成功记录
-	return tx.Where("goods_id = ?", goodsId).Delete(&model.SuccessKilled{}).Error
+	result := tx.Where("goods_id = ?", goodsId).Delete(&model.SuccessKilled{})
+	if result.Error != nil {
+		slog.Error("Failed to clear orders",
+			"goods_id", goodsId,
+			"error", result.Error,
+		)
+	} else {
+		slog.Info("Orders cleared successfully",
+			"goods_id", goodsId,
+			"rows_affected", result.RowsAffected,
+		)
+	}
+	return result.Error
 }
 
 // ResetPromotionCountByGoodsId 重置指定商品的促销库存数量
 func (dao *GoodRepository) ResetPromotionCountByGoodsId(tx *gorm.DB, goodsId int64, count int64) error {
-	// 重置库存数量和版本号
-	return tx.Model(&model.PromotionSecKill{}).
+	result := tx.Model(&model.PromotionSecKill{}).
 		Where("goods_id = ?", goodsId).
 		Updates(map[string]any{
 			"ps_count": count, // 重置库存数量
 			"version":  0,     // 重置版本号
-		}).Error
+		})
+
+	if result.Error != nil {
+		slog.Error("Failed to reset promotion count",
+			"goods_id", goodsId,
+			"count", count,
+			"error", result.Error,
+		)
+	} else {
+		slog.Info("Promotion count reset successfully",
+			"goods_id", goodsId,
+			"count", count,
+			"rows_affected", result.RowsAffected,
+		)
+	}
+	return result.Error
 }
 
 // WithTransaction 执行数据库事务
 // 传入的事务函数会在事务中执行
 func (dao *GoodRepository) WithTransaction(fn func(tx *gorm.DB) error) error {
-	return dao.db.Transaction(fn)
+	slog.Info("Starting database transaction")
+	err := dao.db.Transaction(fn)
+	if err != nil {
+		slog.Error("Database transaction failed", "error", err)
+	} else {
+		slog.Info("Database transaction completed successfully")
+	}
+	return err
 }

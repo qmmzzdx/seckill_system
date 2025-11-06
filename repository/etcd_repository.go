@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"seckill_system/global"
 	"strconv"
 	"time"
@@ -34,11 +34,16 @@ func (e *ETCDRepository) GetSeckillEnabled(ctx context.Context) (bool, error) {
 
 	// 如果不存在配置项，默认返回true(开启状态)
 	if len(resp.Kvs) == 0 {
+		slog.Warn("Seckill enabled config not found, using default value: true")
 		return true, nil
 	}
 
 	// 解析配置值
 	enabled := string(resp.Kvs[0].Value)
+	slog.Info("Retrieved seckill enabled config",
+		"key", global.EtcdKeySeckillEnabled,
+		"value", enabled,
+	)
 	return enabled == "true", nil
 }
 
@@ -55,6 +60,11 @@ func (e *ETCDRepository) SetSeckillEnabled(ctx context.Context, enabled bool) er
 	if err != nil {
 		return fmt.Errorf("set seckill enabled failed: %v", err)
 	}
+
+	slog.Info("Seckill enabled config updated",
+		"key", global.EtcdKeySeckillEnabled,
+		"value", value,
+	)
 	return nil
 }
 
@@ -68,15 +78,24 @@ func (e *ETCDRepository) GetRateLimitConfig(ctx context.Context) (int64, error) 
 
 	// 如果不存在配置项，返回默认值
 	if len(resp.Kvs) == 0 {
+		slog.Warn("Rate limit config not found, using default value: 10")
 		return 10, nil
 	}
 
 	// 解析配置值
 	limit, err := strconv.ParseInt(string(resp.Kvs[0].Value), 10, 64)
 	if err != nil {
+		slog.Warn("Failed to parse rate limit config, using default value",
+			"value", string(resp.Kvs[0].Value),
+			"error", err,
+		)
 		return 10, nil // 解析失败返回默认值
 	}
 
+	slog.Info("Retrieved rate limit config",
+		"key", global.EtcdKeyRateLimit,
+		"value", limit,
+	)
 	return limit, nil
 }
 
@@ -87,6 +106,11 @@ func (e *ETCDRepository) SetRateLimitConfig(ctx context.Context, limit int64) er
 	if err != nil {
 		return fmt.Errorf("set rate limit config failed: %v", err)
 	}
+
+	slog.Info("Rate limit config updated",
+		"key", global.EtcdKeyRateLimit,
+		"value", limit,
+	)
 	return nil
 }
 
@@ -121,7 +145,12 @@ func (e *ETCDRepository) AddToBlacklist(ctx context.Context, userId int64, reaso
 		return fmt.Errorf("add to blacklist failed: %v", err)
 	}
 
-	log.Printf("User %d added to blacklist, reason: %s, duration: %v", userId, reason, duration)
+	slog.Info("User added to blacklist",
+		"user_id", userId,
+		"reason", reason,
+		"duration", duration,
+		"expire_time", blacklistInfo["expire"],
+	)
 	return nil
 }
 
@@ -133,6 +162,10 @@ func (e *ETCDRepository) RemoveFromBlacklist(ctx context.Context, userId int64) 
 	if err != nil {
 		return fmt.Errorf("remove from blacklist failed: %v", err)
 	}
+
+	slog.Info("User removed from blacklist",
+		"user_id", userId,
+	)
 	return nil
 }
 
@@ -146,7 +179,13 @@ func (e *ETCDRepository) IsInBlacklist(ctx context.Context, userId int64) (bool,
 	}
 
 	// 根据是否存在键值判断是否在黑名单中
-	return len(resp.Kvs) > 0, nil
+	inBlacklist := len(resp.Kvs) > 0
+	if inBlacklist {
+		slog.Warn("User found in blacklist",
+			"user_id", userId,
+		)
+	}
+	return inBlacklist, nil
 }
 
 // GetBlacklist 获取黑名单列表
@@ -162,12 +201,18 @@ func (e *ETCDRepository) GetBlacklist(ctx context.Context) ([]map[string]any, er
 		var info map[string]any
 		// 反序列化JSON数据
 		if err := json.Unmarshal(kv.Value, &info); err != nil {
-			log.Printf("Failed to unmarshal blacklist info: %v", err)
+			slog.Warn("Failed to unmarshal blacklist info",
+				"key", string(kv.Key),
+				"error", err,
+			)
 			continue
 		}
 		blacklist = append(blacklist, info)
 	}
 
+	slog.Info("Retrieved blacklist",
+		"count", len(blacklist),
+	)
 	return blacklist, nil
 }
 
@@ -180,7 +225,11 @@ func (e *ETCDRepository) WatchSeckillConfig(ctx context.Context, callback func(k
 	go func() {
 		for wresp := range rch {
 			for _, ev := range wresp.Events {
-				log.Printf("Etcd config changed: %s %q : %q\n", ev.Type, ev.Kv.Key, ev.Kv.Value)
+				slog.Info("Etcd config changed",
+					"type", ev.Type,
+					"key", string(ev.Kv.Key),
+					"value", string(ev.Kv.Value),
+				)
 				if callback != nil {
 					callback(string(ev.Kv.Key), string(ev.Kv.Value))
 				}
@@ -206,6 +255,16 @@ func (e *ETCDRepository) GetDistributedLock(ctx context.Context, key string, ttl
 		return false, fmt.Errorf("etcd transaction failed: %v", err)
 	}
 
+	if resp.Succeeded {
+		slog.Info("Distributed lock acquired",
+			"key", key,
+			"ttl", ttl,
+		)
+	} else {
+		slog.Info("Distributed lock acquisition failed, key already exists",
+			"key", key,
+		)
+	}
 	return resp.Succeeded, nil
 }
 
@@ -216,6 +275,9 @@ func (e *ETCDRepository) ReleaseDistributedLock(ctx context.Context, key string)
 	if err != nil {
 		return fmt.Errorf("delete etcd key failed: %v", err)
 	}
+	slog.Info("Distributed lock released",
+		"key", key,
+	)
 	return nil
 }
 
@@ -224,5 +286,6 @@ func (e *ETCDRepository) Close() error {
 	if err := e.client.Close(); err != nil {
 		return fmt.Errorf("close etcd client failed: %v", err)
 	}
+	slog.Info("ETCD repository closed")
 	return nil
 }

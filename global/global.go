@@ -3,8 +3,9 @@ package global
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"math/rand"
+	"os"
 	"seckill_system/config"
 	"seckill_system/model"
 	"time"
@@ -48,13 +49,20 @@ func InitMySQL() {
 		Logger: logger.Default.LogMode(logger.Info), // 设置日志级别
 	})
 	if err != nil {
-		log.Fatalf("failed to connect database: %v", err)
+		slog.Error("failed to connect database",
+			"error", err,
+			"host", cfg.Host,
+			"port", cfg.Port,
+			"database", cfg.Name,
+		)
+		os.Exit(1)
 	}
 
 	// 获取底层sql.DB对象以设置连接池参数
 	sqlDB, err := DBClient.DB()
 	if err != nil {
-		log.Fatalf("failed to get sql.DB: %v", err)
+		slog.Error("failed to get sql.DB", "error", err)
+		os.Exit(1)
 	}
 
 	// 设置连接池参数
@@ -62,9 +70,16 @@ func InitMySQL() {
 	sqlDB.SetMaxIdleConns(20)                 // 最大空闲连接数
 	sqlDB.SetConnMaxLifetime(3 * time.Minute) // 连接最大生命周期
 
+	slog.Info("MySQL connection established successfully",
+		"host", cfg.Host,
+		"port", cfg.Port,
+		"database", cfg.Name,
+	)
+
 	// 初始化数据库表结构和测试数据
 	if err := initDatabase(); err != nil {
-		log.Fatalf("failed to initialize database: %v", err)
+		slog.Error("failed to initialize database", "error", err)
+		os.Exit(1)
 	}
 }
 
@@ -83,8 +98,14 @@ func InitRedis() {
 
 	// 测试连接是否成功
 	if _, err := RedisClusterClient.Ping(context.Background()).Result(); err != nil {
-		log.Fatalf("failed to connect redis cluster: %v", err)
+		slog.Error("failed to connect redis cluster",
+			"error", err,
+			"nodes", nodes,
+		)
+		os.Exit(1)
 	}
+
+	slog.Info("Redis cluster connected successfully", "nodes", nodes)
 }
 
 // InitKafka 初始化Kafka生产者和消费者
@@ -108,6 +129,12 @@ func InitKafka() {
 		MinBytes: 10e3,        // 最小读取字节数
 		MaxBytes: 10e6,        // 最大读取字节数
 	})
+
+	slog.Info("Kafka clients initialized",
+		"brokers", brokers,
+		"topic", cfg.Topic,
+		"group_id", cfg.GroupID,
+	)
 }
 
 // InitEtcd 初始化Etcd客户端连接
@@ -127,7 +154,11 @@ func InitEtcd() {
 		MaxCallRecvMsgSize:   10 * 1024 * 1024,
 	})
 	if err != nil {
-		log.Fatalf("failed to connect etcd: %v", err)
+		slog.Error("failed to connect etcd",
+			"error", err,
+			"endpoints", endpoints,
+		)
+		os.Exit(1)
 	}
 
 	// 检查Etcd服务状态
@@ -135,11 +166,12 @@ func InitEtcd() {
 	defer cancel()
 
 	if _, err := client.Status(ctx, endpoints[0]); err != nil {
-		log.Fatalf("failed to get etcd status: %v", err)
+		slog.Error("failed to get etcd status", "error", err)
+		os.Exit(1)
 	}
 
 	EtcdClient = client
-	log.Printf("Etcd connected successfully to: %v", endpoints)
+	slog.Info("Etcd connected successfully", "endpoints", endpoints)
 
 	// 初始化Etcd中的默认配置
 	initEtcdConfig()
@@ -162,7 +194,7 @@ func initEtcdConfig() {
 		// 检查配置是否已存在
 		resp, err := EtcdClient.Get(ctx, key)
 		if err != nil {
-			log.Printf("Failed to check etcd key %s: %v", key, err)
+			slog.Warn("Failed to check etcd key", "key", key, "error", err)
 			continue
 		}
 
@@ -170,9 +202,9 @@ func initEtcdConfig() {
 		if len(resp.Kvs) == 0 {
 			_, err := EtcdClient.Put(ctx, key, value)
 			if err != nil {
-				log.Printf("Failed to set etcd config %s: %v", key, err)
+				slog.Warn("Failed to set etcd config", "key", key, "error", err)
 			} else {
-				log.Printf("Set default etcd config: %s=%s", key, value)
+				slog.Info("Set default etcd config", "key", key, "value", value)
 			}
 		}
 	}
@@ -201,8 +233,10 @@ func insertTestData(count int) error {
 		return err
 	}
 	if existingCount > 0 {
+		slog.Info("Database already contains data, skipping test data insertion")
 		return nil
 	}
+
 	// 在事务中同时插入商品和促销数据
 	return DBClient.Transaction(func(tx *gorm.DB) error {
 		// 生成商品数据
@@ -215,6 +249,11 @@ func insertTestData(count int) error {
 		if err := tx.CreateInBatches(promotions, count).Error; err != nil {
 			return fmt.Errorf("failed to insert promotion data: %v", err)
 		}
+
+		slog.Info("Test data inserted successfully",
+			"goods_count", count,
+			"promotions_count", count,
+		)
 		return nil
 	})
 }
@@ -277,6 +316,7 @@ func CloseMysql() {
 	if DBClient != nil {
 		if sqlDB, err := DBClient.DB(); err == nil {
 			sqlDB.Close()
+			slog.Info("MySQL connection closed")
 		}
 	}
 }
@@ -285,6 +325,7 @@ func CloseMysql() {
 func CloseRedis() {
 	if RedisClusterClient != nil {
 		RedisClusterClient.Close()
+		slog.Info("Redis cluster connection closed")
 	}
 }
 
@@ -296,11 +337,13 @@ func CloseKafka() {
 	if KafkaReader != nil {
 		KafkaReader.Close()
 	}
+	slog.Info("Kafka clients closed")
 }
 
 // CloseEtcd 关闭Etcd客户端连接
 func CloseEtcd() {
 	if EtcdClient != nil {
 		EtcdClient.Close()
+		slog.Info("Etcd connection closed")
 	}
 }

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"seckill_system/global"
 	"seckill_system/model"
 	"time"
@@ -51,7 +51,18 @@ func (k *KafkaRepository) SendOrderMessage(ctx context.Context, order *model.Ord
 	}
 
 	// 发送消息
-	return k.writer.WriteMessages(ctx, msg)
+	err = k.writer.WriteMessages(ctx, msg)
+	if err != nil {
+		return fmt.Errorf("send order message failed: %v", err)
+	}
+
+	slog.Info("Order message sent to Kafka",
+		"order_id", order.OrderId,
+		"user_id", order.UserId,
+		"goods_id", order.GoodsId,
+		"status", order.Status,
+	)
+	return nil
 }
 
 // SendPaymentMessage 发送支付消息到Kafka
@@ -86,7 +97,16 @@ func (k *KafkaRepository) SendPaymentMessage(ctx context.Context, orderId string
 	}
 
 	// 发送消息
-	return k.writer.WriteMessages(ctx, msg)
+	err = k.writer.WriteMessages(ctx, msg)
+	if err != nil {
+		return fmt.Errorf("send payment message failed: %v", err)
+	}
+
+	slog.Info("Payment message sent to Kafka",
+		"order_id", orderId,
+		"status", status,
+	)
+	return nil
 }
 
 // ConsumeOrderMessages 消费订单消息
@@ -102,17 +122,30 @@ func (k *KafkaRepository) ConsumeOrderMessages(ctx context.Context, handler func
 		// 反序列化订单消息
 		var order model.OrderMessage
 		if err := json.Unmarshal(msg.Value, &order); err != nil {
-			log.Printf("Failed to unmarshal order message: %v, message: %s", err, string(msg.Value))
+			slog.Warn("Failed to unmarshal order message",
+				"error", err,
+				"message", string(msg.Value),
+				"offset", msg.Offset,
+				"partition", msg.Partition,
+			)
 			continue // 跳过无法解析的消息
 		}
 
 		// 记录收到的消息
-		log.Printf("Received order message: OrderID=%s, UserID=%d, Status=%d",
-			order.OrderId, order.UserId, order.Status)
+		slog.Info("Received order message from Kafka",
+			"order_id", order.OrderId,
+			"user_id", order.UserId,
+			"status", order.Status,
+			"offset", msg.Offset,
+			"partition", msg.Partition,
+		)
 
 		// 调用处理函数处理消息
 		if err := handler(order); err != nil {
-			log.Printf("Handle order message failed: %v", err)
+			slog.Error("Handle order message failed",
+				"order_id", order.OrderId,
+				"error", err,
+			)
 			// 不返回错误，继续处理下一条消息
 		}
 	}
@@ -142,13 +175,20 @@ func (k *KafkaRepository) ConsumePaymentMessages(ctx context.Context, handler fu
 		// 检查消息类型，只处理支付消息
 		messageType := getHeaderValue(msg.Headers, "message_type")
 		if messageType != "payment" {
+			slog.Info("Skipping non-payment message",
+				"message_type", messageType,
+				"offset", msg.Offset,
+			)
 			continue // 跳过非支付消息
 		}
 
 		// 反序列化支付消息
 		var paymentMsg map[string]any
 		if err := json.Unmarshal(msg.Value, &paymentMsg); err != nil {
-			log.Printf("Failed to unmarshal payment message: %v", err)
+			slog.Warn("Failed to unmarshal payment message",
+				"error", err,
+				"offset", msg.Offset,
+			)
 			continue
 		}
 
@@ -156,11 +196,19 @@ func (k *KafkaRepository) ConsumePaymentMessages(ctx context.Context, handler fu
 		orderId, _ := paymentMsg["order_id"].(string)
 		status, _ := paymentMsg["status"].(float64)
 
-		log.Printf("Received payment message: OrderID=%s, Status=%v", orderId, status)
+		slog.Info("Received payment message from Kafka",
+			"order_id", orderId,
+			"status", status,
+			"offset", msg.Offset,
+			"partition", msg.Partition,
+		)
 
 		// 调用处理函数处理消息
 		if err := handler(orderId, int32(status)); err != nil {
-			log.Printf("Handle payment message failed: %v", err)
+			slog.Error("Handle payment message failed",
+				"order_id", orderId,
+				"error", err,
+			)
 		}
 	}
 }
@@ -185,5 +233,6 @@ func (k *KafkaRepository) Close() error {
 	if err := k.reader.Close(); err != nil {
 		return fmt.Errorf("close kafka reader failed: %v", err)
 	}
+	slog.Info("Kafka repository closed")
 	return nil
 }

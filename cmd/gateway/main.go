@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -47,9 +47,12 @@ func main() {
 
 	// 启动HTTP服务
 	go func() {
-		log.Printf("🚀 Seckill system gateway service started on port: %d", cfg.Server.Port)
+		slog.Info("🚀 Seckill system gateway service started",
+			"port", cfg.Server.Port,
+		)
 		if err := gatewayServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Seckill system gateway service failed: %v", err)
+			slog.Error("Seckill system gateway service failed", "error", err)
+			os.Exit(1)
 		}
 	}()
 
@@ -58,7 +61,7 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log.Println("Shutting down server...")
+	slog.Info("Shutting down server...")
 
 	// 设置优雅关闭超时时间
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -66,14 +69,14 @@ func main() {
 
 	// 关闭HTTP服务器
 	if err := gatewayServer.Shutdown(ctx); err != nil {
-		log.Printf("Gateway forced to shutdown: %v", err)
+		slog.Error("Gateway forced to shutdown", "error", err)
 	} else {
-		log.Println("Gateway gracefully stopped")
+		slog.Info("Gateway gracefully stopped")
 	}
 
 	// 释放所有资源
 	cleanupResources()
-	log.Println("Server exited")
+	slog.Info("Server exited")
 }
 
 // 关闭所有服务连接
